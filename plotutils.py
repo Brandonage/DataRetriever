@@ -214,6 +214,10 @@ def plot_sweet_sport(dfk):
     name = Series('count at GraphLoader.scala:93')
     g = sns.pointplot(x='taskspernode',y='duration',hue='name',data=toplot)
 
+def plot_evaluation_of_models():
+    toplot = DataFrame({'totalDuration':[910495,961827,1024882,],'method':['Best Duration','Optimised Model Duration','Default']})
+    g = sns.barplot(x='method',y='totalDuration',data=toplot)
+
 
 
 
