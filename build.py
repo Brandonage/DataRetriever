@@ -12,7 +12,7 @@ from sklearn.svm import SVR
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.neural_network import MLPRegressor
 
-classifiers = [
+regressors = [
             BayesianRidge(),
             LinearRegression(),
             SGDRegressor(),
@@ -38,13 +38,25 @@ def export_set(path):
     dfk.to_pickle(path + '/pickle/dfk.pickle')
 
 def import_set(path):
-    dfg = read_pickle(path + '/pickle/dfg.pickle')
-    dfm = read_pickle(path + '/pickle/dfm.pickle')
-    dfj = read_pickle(path + '/pickle/dfj.pickle')
-    dfs = read_pickle(path + '/pickle/dfs.pickle')
-    dfenv = read_pickle(path + '/pickle/dfenv.pickle')
-    dfapps = read_pickle(path + '/pickle/dfapps.pickle')
-    dfk = read_pickle(path + '/pickle/dfk.pickle')
+    dfg2 = read_pickle(path + '/pickle/dfg.pickle')
+    dfm2 = read_pickle(path + '/pickle/dfm.pickle')
+    dfj2 = read_pickle(path + '/pickle/dfj.pickle')
+    dfs2 = read_pickle(path + '/pickle/dfs.pickle')
+    dfenv2 = read_pickle(path + '/pickle/dfenv.pickle')
+    dfapps2 = read_pickle(path + '/pickle/dfapps.pickle')
+    dfk2 = read_pickle(path + '/pickle/dfk.pickle')
+
+
+
+def import_set(path):
+    dfg = dfg2.append(dfg)
+    dfm = dfm2.append(dfm)
+    dfj = dfj2.append(dfj)
+    dfs = dfs2.append(dfs)
+    dfenv = dfenv2.append(dfenv)
+    dfapps = dfapps2.append(dfapps)
+    dfk = dfk2.append(dfk)
+
 
 
 def widen_display():

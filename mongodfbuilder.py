@@ -7,19 +7,25 @@ import math
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import cross_val_score
-from sklearn.model_selection import cross_val_predict
 from sklearn.model_selection import GridSearchCV
 from sklearn.model_selection import LeaveOneGroupOut
 from sklearn.pipeline import make_pipeline
 from sklearn import preprocessing
-from sklearn import svm
-from sklearn import tree
-from sklearn.linear_model import Perceptron
+from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.neighbors import NearestNeighbors
 from sklearn.metrics import mean_squared_error
+from sklearn.preprocessing import StandardScaler
 import requests
 from time import sleep
 import seaborn as sns
+from sklearn.externals import joblib
+from sklearn.neighbors import KNeighborsRegressor
+model_path = '/Users/alvarobrandon/Experiments/memory_and_cores/BigBenchmark/pickle/clf.pickle'
+cluster_path = '/Users/alvarobrandon/Experiments/memory_and_cores/BigBenchmark/pickle/cluster.pickle'
+normaliser_path = '/Users/alvarobrandon/Experiments/memory_and_cores/BigBenchmark/pickle/normaliser.pickle'
 
 
 class MongoDFBuilder:
@@ -161,10 +167,11 @@ class MongoDFBuilder:
         return kernels
 
     def build_ml_dataframe(self,dfk,gigas,cores):
-        drop_this_for_training = ['appId','id','jobId','name','stageId','spark.app.name','spark.executor.memory','spark.executor.cores', 'taskCountsRunning' ,
+        drop_this_for_training = ['appId','id','jobId','name','stageId','spark.app.name','spark.executor.memory', 'taskCountsRunning' ,
                                   'taskCountsSucceeded','slotsInCluster','nExecutorsPerNode', 'tasksincluster'#'totalTaskDuration',
-                                  ,'ExecutorRunTime', 'ResultSize','ResultSerializationTime','memoryPerTask','spark.executor.bytes'] #,'spark.executor.bytes','tasksincluster'
-        def feature_importances(clf,columns): #feature_importances(clf,database.columns.drop(drop_this_for_training).drop('duration'))
+                                  ,'ExecutorRunTime', 'ResultSize','ResultSerializationTime','disk_read','disk_write','net_recv','net_send',
+                                  'io_total_read','io_total_write','SchedulerDelayTime','ExecutorDeserializeTime','SchedulerDelayTime','status','paging_in','paging_out','cpu_usr','cpu_wait','cpu_idl','sys_contswitch','sys_interrupts'] #,'spark.executor.bytes','tasksincluster'
+        def feature_importances(clf,columns): #feature_importances(clf.named_steps["gradientboostingregressor"],database.columns.drop(drop_this_for_training).drop('duration'))
             importances  = zip(clf.feature_importances_,columns)
             return importances
 
@@ -268,9 +275,18 @@ class MongoDFBuilder:
             return final_scores
 
 
-        def evaluating_different_models(classifiers,names,database):## Will return a series of scores for each application
+        def evaluating_different_models(regressors,names,database):## Will return a series of scores for each application
             final_scores = {}
-            for name,clf in zip(names,classifiers):
+            for name,clf in zip(names,regressors):
+                print name
+                pipe = make_pipeline(preprocessing.StandardScaler(),clf)
+                scores=cross_val_score(pipe,database.drop(drop_this_for_training,axis=1).drop('duration',axis=1),database['duration'],cv=10,scoring='neg_mean_absolute_error')
+                final_scores.update({name : scores})
+            return final_scores
+
+        def evaluating_classifiers(classifiers,names,database):## Will return a series of scores for each application
+            final_scores = {}
+            for name,clf in zip(names,regressors):
                 print name
                 pipe = make_pipeline(preprocessing.StandardScaler(),clf)
                 scores=cross_val_score(pipe,database.drop(drop_this_for_training,axis=1).drop('duration',axis=1),database['duration'],cv=10,scoring='neg_mean_absolute_error')
@@ -291,6 +307,38 @@ class MongoDFBuilder:
             ax.set_ylabel('Duration in ms')
             ax.set_title('Stage 0 of Grep')
 
+        def prepare_database_cluster(dfk,dfapps):
+            database = dfk.loc[(dfk['spark.executor.memory']=='1g') & (dfk['spark.executor.cores']=='1')]
+            database = database.fillna(0)
+            drop_for_clustering = ['appId','id','jobId','name','stageId','spark.executor.memory','spark.executor.cores', 'taskCountsRunning' , ## we have to drop parallelism features, noisy ones
+                                  'taskCountsSucceeded','slotsInCluster','nExecutorsPerNode', 'tasksincluster'#'totalTaskDuration',     ## and all the identifiers (stageId, jobId and so on)
+                                  , 'ResultSize','ResultSerializationTime','memoryPerTask','spark.executor.bytes','disk_read','disk_write','net_recv','net_send',
+                                  'paging_in','paging_out','io_total_read','io_total_write','duration','tasksincluster','taskspernode','nWaves','spark.app.name']
+            test =  database.loc[(database['spark.app.name'].isin(['Spark PCA Example','SupporVectorMachine','Grep','Spark ShortestPath Application','RDDRelation','Spark ConnectedComponent Application']))]
+            train = database.drop(database[(database['spark.app.name'].isin(['Spark PCA Example','SupporVectorMachine','Grep','Spark ShortestPath Application','RDDRelation','Spark ConnectedComponent Application']))# & ~((database['spark.executor.memory']==gigas) & (database['spark.executor.cores']==cores))
+                                  ].index)
+            train_x = train.drop(drop_for_clustering,axis=1)
+            #test_x = test.drop(drop_for_clustering,axis=1)
+            # test_x = test.loc[test['appId']=='application_1479154708246_0005'].drop(drop_for_clustering,axis=1)
+            scaler = preprocessing.StandardScaler().fit(train_x)
+            X = scaler.transform(train_x)
+            clf = NearestNeighbors(n_neighbors=4)
+            clf.fit(X)
+            joblib.dump(clf, cluster_path)
+            joblib.dump(scaler,normaliser_path)
+            #res = clf.kneighbors(scaler.transform(test_x))
+            #train.iloc[res[1][0]]
+            #res = database.apply(lambda row: best_conf(row['stageId'],row['id'],row['appId'],dfm),axis=1)
+
+
+            for name,clf in zip(names,classifiers):
+                print name
+                pipe = make_pipeline(preprocessing.StandardScaler(),clf)
+                pipe.fit(train.drop(drop_this_for_training,axis=1).drop('duration',axis=1),train['duration'])
+                final_test['result '+name] = pipe.predict(test.drop(drop_this_for_training,axis=1).drop('duration',axis=1))
+            return final_test
+
+
         def df_to_plot_accuracy_grid(results):
             toplot = results[['stageId','duration','Result','totalTaskDuration','spark.executor.cores','spark.executor.memory','taskCountsNum','tasksThatRunned']]
             toplot['step'] = toplot['spark.executor.memory'] + '/' + toplot['spark.executor.cores']
@@ -304,27 +352,32 @@ class MongoDFBuilder:
             ax.set_title('Stage 0 of Grep')
 
 
-
+        def return_model(dfk,gigas,cores):
             database = prepare_database(dfk,gigas,cores)
             #train, test = train_test_split(database, test_size = 0.2)  ## WE CAN DO A SPLIT OR PASS A CONSTRUCT OUR OWN TRAIN AND TEST DATASET
-            test = database.loc[(database['spark.app.name'].isin(['Spark PCA Example','Spark SVDPlusPlus Application','SupporVectorMachine','Grep','DecisionTree classification Example']))]# & ~((database['spark.executor.memory'].isin(['1g','3g'])) & (database['spark.executor.cores'].isin(['1','4']))]
-            train = database.drop(database[(database['spark.app.name'].isin(['Spark PCA Example','Spark SVDPlusPlus Application','SupporVectorMachine','Grep','DecisionTree classification Example']))# & ~((database['spark.executor.memory']==gigas) & (database['spark.executor.cores']==cores))
+            test = database.loc[(database['spark.app.name'].isin(['Spark PCA Example','SupporVectorMachine','Grep','Spark ShortestPath Application','RDDRelation','Spark ConnectedComponent Application']))]# & ~((database['spark.executor.memory'].isin(['1g','3g'])) & (database['spark.executor.cores'].isin(['1','4']))]
+            train = database.drop(database[(database['spark.app.name'].isin(['Spark PCA Example','SupporVectorMachine','Grep','Spark ShortestPath Application','RDDRelation','Spark ConnectedComponent Application']))# & ~((database['spark.executor.memory']==gigas) & (database['spark.executor.cores']==cores))
                                   ].index)
             train_x = train.drop(drop_this_for_training,axis=1).drop('duration',axis=1)
             test_x = test.drop(drop_this_for_training,axis=1).drop('duration',axis=1)
             train_y = train['duration']
-            clf= GradientBoostingRegressor(alpha=0.9, criterion='friedman_mse', init=None,
-             learning_rate=0.1, loss='ls', max_depth=5, max_features=None,
+            tree= GradientBoostingRegressor(alpha=0.9, criterion='friedman_mse', init=None,
+             learning_rate=0.1, loss='ls', max_depth=7, max_features=None,
              max_leaf_nodes=None, min_impurity_split=1e-07,
-             min_samples_leaf=1, min_samples_split=2,
+             min_samples_leaf=1, min_samples_split=5,
              min_weight_fraction_leaf=0.0, n_estimators=450, presort='auto',
              random_state=None, subsample=1.0, verbose=0, warm_start=False)
-            clf.fit(train_x,train_y)
-            Result = clf.predict(test_x)
+            #neigh = KNeighborsRegressor(n_neighbors=10,weights='distance')
+            clf = make_pipeline(preprocessing.StandardScaler(),tree)
+            train_x = train_x.sort(axis=1)
+            clf.fit(train_x,train_y)  ## remember to always sort a pandas dataframe when passing it to a sklearn method
+            test_x = test_x.sort(axis=1)
+            Result = clf.predict(test_x)  ## remember to always sort a pandas dataframe when passing it to a sklearn method
             test['Result'] = Result
             test = test.sort(['stageId','name'])
             print_full(test)
-            results = test
+            joblib.dump(clf,model_path)
+            #joblib.dump(clf,model_path) test.loc[((test['spark.app.name']=="Spark PCA Example") & (test['taskCountsNum']==144) & (test['tasksThatRunned']==81))].groupby("conf")['duration'].sum()
 
 
         #scalery = preprocessing.StandardScaler().fit(database['duration'].reshape(-1,1))

@@ -6,7 +6,8 @@ import seaborn as sns
 from pandas import melt
 from pandas import DataFrame
 from pandas import Series
-
+import numpy as np
+from mpl_toolkits.mplot3d import Axes3D
 
 
 
@@ -213,6 +214,24 @@ def plot_sweet_sport(dfk):
     d = DataFrame({'name':shortestname,'duration':duration,'taskspernode':taskper})
     name = Series('count at GraphLoader.scala:93')
     g = sns.pointplot(x='taskspernode',y='duration',hue='name',data=toplot)
+
+def plot_partial_dependence3D():
+    fig = plt.figure()
+    target_feature = (1, 5)
+    names = train_x.columns
+    pdp, axes = pd2(clf,train_x, target_feature, grid_resolution=50)
+    XX, YY = np.meshgrid(axes[0], axes[1])
+    Z = pdp[0].reshape(list(map(np.size, axes))).T
+    ax = Axes3D(fig)
+    surf = ax.plot_surface(XX, YY, Z, rstride=1, cstride=1, cmap=plt.cm.BuPu)
+    ax.set_xlabel(names[target_feature[0]])
+    ax.set_ylabel(names[target_feature[1]])
+    ax.set_zlabel('Partial dependence')
+    #  pretty init view
+    ax.view_init(elev=22, azim=122)
+    plt.colorbar(surf)
+    plt.subplots_adjust(top=0.9)
+    plt.show()
 
 
 
