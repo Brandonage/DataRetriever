@@ -44,7 +44,7 @@ def import_set(path):
     dfs2 = read_pickle(path + '/pickle/dfs.pickle')
     dfenv2 = read_pickle(path + '/pickle/dfenv.pickle')
     dfapps2 = read_pickle(path + '/pickle/dfapps.pickle')
-    dfk2 = read_pickle(path + '/pickle/dfk.pickle')
+    dfk = read_pickle(path + '/pickle/dfk.pickle')
 
 
 

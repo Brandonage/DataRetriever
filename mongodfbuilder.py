@@ -223,10 +223,11 @@ class MongoDFBuilder:
             clf.fit(X_train,Y_train)
 
         def grid_search_boost_logo(database):
-            tuned_parameters = [{'max_depth': [3, 5, 7, 10, 20],
-                                 'learning_rate': [0.1,0.05,0.01,0.005,0.0005],
-                                 'n_estimators': [100,150,300,400,500,700]}]
-            boost = GradientBoostingRegressor()
+            tuned_parameters = [{'max_depth': [1, 7, 15],
+                                 'learning_rate': [0.1,0.01,0.005],
+                                 'n_estimators': [500,1000,1500]}
+                                ]
+            boost = GradientBoostingRegressor(n_estimators=500)
             # tuned_parameters = [{'learning_rate': [0.1,0.15], 'n_estimators': [100,150,300],
             #                    'min_samples_split':[2,10],'min_samples_leaf':[2,10],
             #                    'subsample':[1,0.7],'max_features': ['auto','sqrt','log2'], 'min_impurity_split': [1e-7, 1e-5]}]
@@ -362,10 +363,10 @@ class MongoDFBuilder:
             test_x = test.drop(drop_this_for_training,axis=1).drop('duration',axis=1)
             train_y = train['duration']
             tree= GradientBoostingRegressor(alpha=0.9, criterion='friedman_mse', init=None,
-             learning_rate=0.1, loss='ls', max_depth=7, max_features=None,
+             learning_rate=0.01, loss='ls', max_depth=15, max_features=None,
              max_leaf_nodes=None, min_impurity_split=1e-07,
-             min_samples_leaf=1, min_samples_split=5,
-             min_weight_fraction_leaf=0.0, n_estimators=450, presort='auto',
+             min_samples_leaf=1,
+             min_weight_fraction_leaf=0.0, n_estimators=700, presort='auto',
              random_state=None, subsample=1.0, verbose=0, warm_start=False)
             #neigh = KNeighborsRegressor(n_neighbors=10,weights='distance')
             clf = make_pipeline(preprocessing.StandardScaler(),tree)
