@@ -151,7 +151,7 @@ class MongoDFBuilder:
                 'ResultSize','SchedulerDelayTime','ShuffleBytesRead','ShuffleBytesWritten','ShuffleReadTime','ShuffleWriteTime','totalTaskDuration','taskCountsFailed']
         kernels = dfs.drop(to_drop,axis=1)
         ## calculate the number of tasks per node, the number of executors and the conccurent tasks running in the cluster for that particular stage
-        res = kernels.apply(lambda row: self.calculate_task_per_host(512,1024,row['spark.executor.bytes'],int(row['spark.executor.cores']),5,21504,row['taskCountsNum']),axis=1)
+        res = kernels.apply(lambda row: self.calculate_task_per_host(512,1024,row['spark.executor.bytes'],int(row['spark.executor.cores']),2,21504,row['taskCountsNum']),axis=1)
         ### concat the results to the previous dataframe
         kernels = pd.concat([kernels,res],axis=1)
         ## calculate the OS average counter metrics for that stage and concat them into the dataframe
@@ -170,7 +170,7 @@ class MongoDFBuilder:
         drop_this_for_training = ['appId','id','jobId','name','stageId','spark.app.name','spark.executor.memory', 'taskCountsRunning' ,
                                   'taskCountsSucceeded','slotsInCluster','nExecutorsPerNode', 'tasksincluster'#'totalTaskDuration',
                                   ,'ExecutorRunTime', 'ResultSize','ResultSerializationTime','disk_read','disk_write','net_recv','net_send',
-                                  'io_total_read','io_total_write','SchedulerDelayTime','ExecutorDeserializeTime','SchedulerDelayTime','status','paging_in','paging_out','cpu_usr','cpu_wait','cpu_idl','sys_contswitch','sys_interrupts'] #,'spark.executor.bytes','tasksincluster'
+                                  'SchedulerDelayTime','ExecutorDeserializeTime','SchedulerDelayTime','status']#,'io_total_read','io_total_write','paging_in','paging_out']#,'cpu_usr','cpu_wait','cpu_idl','sys_contswitch','sys_interrupts'] #,'spark.executor.bytes','tasksincluster'
         def feature_importances(clf,columns): #feature_importances(clf.named_steps["gradientboostingregressor"],database.columns.drop(drop_this_for_training).drop('duration'))
             importances  = zip(clf.feature_importances_,columns)
             return importances
@@ -187,6 +187,24 @@ class MongoDFBuilder:
             # database = database.rename(columns={'memoryPerTask_y': 'memoryPerTask', 'spark.executor.bytes_y': 'spark.executor.bytes', 'spark.executor.memory_y': 'spark.executor.memory', 'spark.executor.cores_y': 'spark.executor.cores'
             #                        ,'taskspernode_y' : 'taskspernode' , 'nExecutors_y': 'nExecutors' , 'tasksincluster_y' : 'tasksincluster' , 'status_y' : 'status' , 'duration_y' : 'duration' })
             database = database.append(reference) ## we unify the reference default executions with the non-default. We also eliminate any 0's
+            database = database.fillna(0)
+            ## Let's reorder the dataframe to have duration at the front
+            duration = database['duration']
+            database.drop(['duration'],axis=1,inplace = True)
+            database['duration'] = duration
+            return database
+
+        def prepare_database_2(dfk): ## prepare a dataframe with all the apps from dfk that has {signature of App metrics and system metrics for 1g/1core, configuration, parallelism metrics,
+            reference = dfk.loc[(dfk['status'].isin([3,2,1]))] ### This are the stage executions with the default configuration for gigas and cores
+            ## we only want to take the configuration parameters of the executions that are not default and attach the signatures of 1G's and 1Core contained in reference dataframe
+            to_add = dfk[['appId','memoryPerTask','spark.executor.bytes','spark.executor.memory','spark.executor.cores','taskspernode','nWaves','nExecutorsPerNode',
+                          'tasksincluster','spark.app.name','stageId',# we took away status from the features
+                         'duration','slotsInCluster','taskCountsNum']].loc[(dfk['status'].isin([3,2,1]))] ## status 4 are stages that are skipped. We don't want those
+            database = reference.drop(['appId','spark.executor.memory','nExecutorsPerNode',
+                         'duration','slotsInCluster','tasksincluster','nWaves'],axis=1).merge(to_add,on=['spark.app.name','stageId'],suffixes=(['_ref','_if'])) ## we merge the signatures of the default executions and the non-default
+            # database = database.drop(['duration_x','spark.executor.bytes_x', 'spark.executor.cores_x', 'spark.executor.memory_x',  'taskspernode_x',  'nExecutors_x',  'tasksincluster_x','memoryPerTask_x'],axis=1) ## QUITADO STATUS
+            # database = database.rename(columns={'memoryPerTask_y': 'memoryPerTask', 'spark.executor.bytes_y': 'spark.executor.bytes', 'spark.executor.memory_y': 'spark.executor.memory', 'spark.executor.cores_y': 'spark.executor.cores'
+            #                        ,'taskspernode_y' : 'taskspernode' , 'nExecutors_y': 'nExecutors' , 'tasksincluster_y' : 'tasksincluster' , 'status_y' : 'status' , 'duration_y' : 'duration' })
             database = database.fillna(0)
             ## Let's reorder the dataframe to have duration at the front
             duration = database['duration']
@@ -223,11 +241,11 @@ class MongoDFBuilder:
             clf.fit(X_train,Y_train)
 
         def grid_search_boost_logo(database):
-            tuned_parameters = [{'max_depth': [1, 7, 15],
-                                 'learning_rate': [0.1,0.01,0.005],
-                                 'n_estimators': [500,1000,1500]}
+            tuned_parameters = [{'max_depth': [3, 7, 15],
+                                 'learning_rate': [0.1,0.01,0.005]}
+                                 #'n_estimators': [1000,1500]}
                                 ]
-            boost = GradientBoostingRegressor(n_estimators=500)
+            boost = GradientBoostingRegressor(n_estimators=1500)
             # tuned_parameters = [{'learning_rate': [0.1,0.15], 'n_estimators': [100,150,300],
             #                    'min_samples_split':[2,10],'min_samples_leaf':[2,10],
             #                    'subsample':[1,0.7],'max_features': ['auto','sqrt','log2'], 'min_impurity_split': [1e-7, 1e-5]}]
@@ -298,15 +316,15 @@ class MongoDFBuilder:
             return database[(database['spark.app.name'].isin(aplicaciones)) & ((database['spark.executor.memory']=='1g') & (database['spark.executor.cores']=='1'))]
 
         def df_to_plot_accuracy(results):
-            toplot = results[['stageId','duration','Result','totalTaskDuration','spark.executor.cores','spark.executor.memory','taskCountsNum']]
-            toplot['step'] = toplot['spark.executor.memory'] + '/' + toplot['spark.executor.cores']
-            res = toplot.loc[(toplot['stageId']==0)&(toplot['taskCountsNum']==128)]
-            res = pd.melt(res,value_vars=['duration','Result'],id_vars=['stageId','totalTaskDuration','spark.executor.cores','spark.executor.memory','step'])
-            ax = sns.pointplot(x='step',y='value',hue='variable',data = res)
+            toplot = results[['stageId','duration','Result','totalTaskDuration','spark.executor.cores_if','spark.executor.memory','taskCountsNum_if']]
+            toplot['step'] = toplot['spark.executor.memory'] + '/' + toplot['spark.executor.cores_if']
+            res = toplot.loc[(toplot['stageId']==0)&(toplot['taskCountsNum_if']==65)]
+            res = pd.melt(res,value_vars=['duration','Result'],id_vars=['stageId','totalTaskDuration','spark.executor.cores_if','spark.executor.memory','step'])
+            ax = sns.pointplot(x='step',y='value',hue='variable',data = res,ci=None)
             ax.set_ylim(bottom=(res.value.min() - 3000))
             ax.set_xlabel('Configuration')
             ax.set_ylabel('Duration in ms')
-            ax.set_title('Stage 0 of Grep')
+            ax.set_title('Stage 0 of Spark ShortestPath Application')
 
         def prepare_database_cluster(dfk,dfapps):
             database = dfk.loc[(dfk['spark.executor.memory']=='1g') & (dfk['spark.executor.cores']=='1')]
@@ -332,18 +350,12 @@ class MongoDFBuilder:
             #res = database.apply(lambda row: best_conf(row['stageId'],row['id'],row['appId'],dfm),axis=1)
 
 
-            for name,clf in zip(names,classifiers):
-                print name
-                pipe = make_pipeline(preprocessing.StandardScaler(),clf)
-                pipe.fit(train.drop(drop_this_for_training,axis=1).drop('duration',axis=1),train['duration'])
-                final_test['result '+name] = pipe.predict(test.drop(drop_this_for_training,axis=1).drop('duration',axis=1))
-            return final_test
 
 
         def df_to_plot_accuracy_grid(results):
             toplot = results[['stageId','duration','Result','totalTaskDuration','spark.executor.cores','spark.executor.memory','taskCountsNum','tasksThatRunned']]
             toplot['step'] = toplot['spark.executor.memory'] + '/' + toplot['spark.executor.cores']
-            res = toplot.loc[(toplot['stageId']==0)]
+            res = toplot.loc[(toplot['stageId']==2)]
             res = pd.melt(res,value_vars=['duration','Result'],id_vars=['stageId','totalTaskDuration','spark.executor.cores','spark.executor.memory','step','taskCountsNum','tasksThatRunned'])
             ax = sns.FacetGrid(data=res,col="taskCountsNum",hue="variable")
             ax = (ax.map(sns.pointplot,'step','value',edgecolor="w").add_legend())
@@ -354,19 +366,19 @@ class MongoDFBuilder:
 
 
         def return_model(dfk,gigas,cores):
-            database = prepare_database(dfk,gigas,cores)
+            database = prepare_database_2(dfk)
             #train, test = train_test_split(database, test_size = 0.2)  ## WE CAN DO A SPLIT OR PASS A CONSTRUCT OUR OWN TRAIN AND TEST DATASET
-            test = database.loc[(database['spark.app.name'].isin(['Spark PCA Example','SupporVectorMachine','Grep','Spark ShortestPath Application','RDDRelation','Spark ConnectedComponent Application']))]# & ~((database['spark.executor.memory'].isin(['1g','3g'])) & (database['spark.executor.cores'].isin(['1','4']))]
-            train = database.drop(database[(database['spark.app.name'].isin(['Spark PCA Example','SupporVectorMachine','Grep','Spark ShortestPath Application','RDDRelation','Spark ConnectedComponent Application']))# & ~((database['spark.executor.memory']==gigas) & (database['spark.executor.cores']==cores))
+            test = database.loc[(database['spark.app.name'].isin(['Spark PCA Example','Grep','SupporVectorMachine','Spark ShortestPath Application','LogisticRegressionApp Example','Spark ConnectedComponent Application']))]# & ~((database['spark.executor.memory'].isin(['1g','3g'])) & (database['spark.executor.cores'].isin(['1','4']))]
+            train = database.drop(database[(database['spark.app.name'].isin(['Spark PCA Example','Grep','SupporVectorMachine','Spark ShortestPath Application','LogisticRegressionApp Example','Spark ConnectedComponent Application']))# & ~((database['spark.executor.memory']==gigas) & (database['spark.executor.cores']==cores))
                                   ].index)
             train_x = train.drop(drop_this_for_training,axis=1).drop('duration',axis=1)
             test_x = test.drop(drop_this_for_training,axis=1).drop('duration',axis=1)
             train_y = train['duration']
             tree= GradientBoostingRegressor(alpha=0.9, criterion='friedman_mse', init=None,
-             learning_rate=0.01, loss='ls', max_depth=15, max_features=None,
+             learning_rate=0.1, loss='ls', max_depth=8, max_features=None,
              max_leaf_nodes=None, min_impurity_split=1e-07,
              min_samples_leaf=1,
-             min_weight_fraction_leaf=0.0, n_estimators=700, presort='auto',
+                 min_weight_fraction_leaf=0.0, n_estimators=2500, presort='auto',
              random_state=None, subsample=1.0, verbose=0, warm_start=False)
             #neigh = KNeighborsRegressor(n_neighbors=10,weights='distance')
             clf = make_pipeline(preprocessing.StandardScaler(),tree)

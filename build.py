@@ -17,12 +17,11 @@ regressors = [
             LinearRegression(),
             SGDRegressor(),
             Lasso(max_iter=100),
-            SVR(),
             GradientBoostingRegressor(),
             MLPRegressor()]
 
 names = ["BayesianRidge", "LinearRegression", "SGDRegressor", "Lasso",
-         "SVR", "GradientBoostingRegressor", "MLPRegressor"]
+          "GradientBoostingRegressor", "MLPRegressor"]
 
 mr = mongodfbuilder.MongoDFBuilder()
 path = "/Users/alvarobrandon/Experiments/memory_and_cores/BigBenchmark"
@@ -35,7 +34,7 @@ def export_set(path):
     dfs.to_pickle(path + '/pickle/dfs.pickle')
     dfenv.to_pickle(path + '/pickle/dfenv.pickle')
     dfapps.to_pickle(path + '/pickle/dfapps.pickle')
-    dfk.to_pickle(path + '/pickle/dfk.pickle')
+    dfk.to_pickle(path + '/pickle/dfksample.pickle')
 
 def import_set(path):
     dfg2 = read_pickle(path + '/pickle/dfg.pickle')
@@ -43,8 +42,13 @@ def import_set(path):
     dfj2 = read_pickle(path + '/pickle/dfj.pickle')
     dfs2 = read_pickle(path + '/pickle/dfs.pickle')
     dfenv2 = read_pickle(path + '/pickle/dfenv.pickle')
-    dfapps2 = read_pickle(path + '/pickle/dfapps.pickle')
+    dfapps = read_pickle(path + '/pickle/dfapps.pickle')
     dfk = read_pickle(path + '/pickle/dfk.pickle')
+    test = read_pickle(path + '/pickle/test.pickle')
+    dfappssample = read_pickle(path + '/pickle/dfappssample.pickle')
+    dfksample = read_pickle(path + '/pickle/dfksample.pickle')
+    dfk = dfk.append(dfksample)
+    dfapps = dfapps.append(dfappssample)
 
 
 
